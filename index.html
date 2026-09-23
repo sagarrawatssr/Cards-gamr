@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Cards & Board Games Hub</title>
+  <!-- PeerJS for Realtime WebRTC Multiplayer (Zero Backend Server required) -->
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+  <!-- QRCode generator for Room Links -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+  <style>
+    :root {
+      --bg: #0d1117;
+      --card-bg: #161b22;
+      --accent: #238636;
+      --accent-hover: #2ea043;
+      --blue: #1f6feb;
+      --text: #f0f6fc;
+      --text-dim: #8b949e;
+      --gold: #f1e05a;
+      --red: #da3633;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; user-select: none; }
+    body { background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+    header { background: var(--card-bg); padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #30363d; }
+    .logo { font-size: 1.1rem; font-weight: bold; color: var(--text); display: flex; align-items: center; gap: 8px; }
+    .profile-pill { display: flex; align-items: center; gap: 10px; background: #21262d; padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; font-weight: 600; }
+    .coins-badge { color: var(--gold); display: flex; align-items: center; gap: 4px; }
+
+    .nav-tabs { display: flex; gap: 8px; padding: 10px 16px; background: #161b22; overflow-x: auto; }
+    .tab-btn { background: #21262d; border: 1px solid #30363d; color: var(--text-dim); padding: 8px 14px; border-radius: 8px; cursor: pointer; white-space: nowrap; font-size: 0.85rem; }
+    .tab-btn.active { background: var(--blue); color: #fff; border-color: var(--blue); }
+
+    .view-container { flex: 1; padding: 16px; display: none; flex-direction: column; gap: 16px; }
+    .view-container.active { display: flex; }
+
+    /* Cards Grid */
+    .games-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+    .game-card { background: var(--card-bg); border: 1px solid #30363d; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; cursor: pointer; transition: transform 0.1s; }
+    .game-card:active { transform: scale(0.97); }
+    .game-icon { font-size: 2.2rem; }
+    .game-title { font-weight: 700; font-size: 1rem; }
+    .game-players { font-size: 0.72rem; color: var(--text-dim); }
+
+    /* Modals / Action Sheets */
+    .box-card { background: var(--card-bg); border: 1px solid #30363d; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+    .btn { background: var(--accent); color: #fff; border: none; padding: 12px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 0.9rem; text-align: center; }
+    .btn:active { opacity: 0.85; }
+    .btn-blue { background: var(--blue); }
+    .btn-secondary { background: #30363d; color: var(--text); }
+    input[type="text"] { background: #0d1117; border: 1px solid #30363d; color: #fff; padding: 12px; border-radius: 8px; font-size: 1rem; outline: none; }
+
+    /* Game Arena Area */
+    .arena-header { display: flex; justify-content: space-between; align-items: center; }
+    .game-board { flex: 1; min-height: 280px; background: #090d13; border: 1px solid #30363d; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; }
+
+    /* TicTacToe Style */
+    .ttt-grid { display: grid; grid-template-columns: repeat(3, 80px); grid-template-rows: repeat(3, 80px); gap: 6px; }
+    .ttt-cell { background: #161b22; border: 2px solid #30363d; border-radius: 8px; font-size: 2.4rem; font-weight: bold; display: flex; align-items: center; justify-content: center; color: #fff; cursor: pointer; }
+
+    /* Bingo Style */
+    .bingo-grid { display: grid; grid-template-columns: repeat(5, 50px); grid-template-rows: repeat(5, 50px); gap: 5px; }
+    .bingo-cell { background: #161b22; border: 1px solid #30363d; border-radius: 6px; font-size: 1.1rem; font-weight: bold; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+    .bingo-cell.marked { background: var(--accent); color: #fff; }
+
+    /* UNO / Cards Deck */
+    .card-deck { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 10px; }
+    .play-card { width: 55px; height: 80px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; font-weight: bold; background: #fff; color: #000; box-shadow: 0 4px 10px rgba(0,0,0,0.5); cursor: pointer; }
+    .play-card.red { background: #ff4d4d; color: #fff; }
+    .play-card.blue { background: #3b82f6; color: #fff; }
+    .play-card.green { background: #10b981; color: #fff; }
+    .play-card.yellow { background: #f59e0b; color: #fff; }
+
+    #qrBox { background: #fff; padding: 10px; border-radius: 8px; width: fit-content; margin: 10px auto; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="logo">🎮 Games Hub</div>
+    <div class="profile-pill">
+      <span id="userName">Player</span>
+      <span class="coins-badge">🪙 <span id="userCoins">1000</span></span>
+    </div>
+  </header>
+
+  <!-- Navigation -->
+  <div class="nav-tabs">
+    <button class="tab-btn active" onclick="switchTab('lobby')">Lobby & Games</button>
+    <button class="tab-btn" onclick="switchTab('multiplayer')">Multiplayer Room (QR/Code)</button>
+    <button class="tab-btn" onclick="switchTab('rewards')">Daily Rewards</button>
+  </div>
+
+  <!-- TAB 1: Games Lobby -->
+  <div id="lobbyView" class="view-container active">
+    <div class="games-grid">
+      <div class="game-card" onclick="openGame('rummy')">
+        <span class="game-icon">🃏</span>
+        <span class="game-title">Rummy Classic</span>
+        <span class="game-players">2-6 Players / AI</span>
+      </div>
+      <div class="game-card" onclick="openGame('uno')">
+        <span class="game-icon">🎴</span>
+        <span class="game-title">Color UNO</span>
+        <span class="game-players">2-4 Players / AI</span>
+      </div>
+      <div class="game-card" onclick="openGame('bingo')">
+        <span class="game-icon">🔢</span>
+        <span class="game-title">Bingo 5x5</span>
+        <span class="game-players">2-8 Players / AI</span>
+      </div>
+      <div class="game-card" onclick="openGame('tictactoe')">
+        <span class="game-icon">❌⭕</span>
+        <span class="game-title">Tic Tac Toe</span>
+        <span class="game-players">2 Players / AI</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 2: Multiplayer Room Management -->
+  <div id="multiplayerView" class="view-container">
+    <div class="box-card">
+      <h3>Create a Room</h3>
+      <p style="font-size: 0.8rem; color: var(--text-dim);">Share Room ID or QR code with friends to join.</p>
+      <button class="btn btn-blue" onclick="createRoom()">Generate Room Code & QR</button>
+      <div id="roomDetails" style="display:none; text-align:center;">
+        <p style="margin-top:10px;">Your Room Code:</p>
+        <h2 id="generatedCode" style="color:var(--blue); letter-spacing: 2px;"></h2>
+        <div id="qrBox"></div>
+        <p style="font-size:0.75rem; color:var(--text-dim);">Status: <span id="peerStatus" style="color:var(--accent);">Waiting for players...</span></p>
+      </div>
+    </div>
+
+    <div class="box-card">
+      <h3>Join a Room</h3>
+      <input type="text" id="joinRoomInput" placeholder="Enter 6-digit Room Code">
+      <button class="btn" onclick="joinRoomByCode()">Join Game</button>
+    </div>
+  </div>
+
+  <!-- TAB 3: Rewards & Profile -->
+  <div id="rewardsView" class="view-container">
+    <div class="box-card" style="text-align: center;">
+      <h2>🎁 Daily Bonus</h2>
+      <p style="color: var(--text-dim); font-size: 0.9rem; margin-top: 4px;">Claim free coins daily to play cards and tournaments!</p>
+      <div style="font-size: 3rem; margin: 15px 0;">💰</div>
+      <button id="claimBtn" class="btn" onclick="claimDailyReward()">Claim 250 Coins</button>
+      <p id="claimMsg" style="font-size: 0.8rem; color: var(--gold); margin-top: 8px;"></p>
+    </div>
+
+    <div class="box-card">
+      <h3>Player Profile</h3>
+      <input type="text" id="profileNameInput" placeholder="Change player name">
+      <button class="btn btn-secondary" onclick="saveProfile()">Save Name</button>
+    </div>
+  </div>
+
+  <!-- GAME ARENA POPUP -->
+  <div id="arenaView" class="view-container">
+    <div class="arena-header">
+      <button class="tab-btn" onclick="exitGame()">← Exit to Lobby</button>
+      <h3 id="arenaTitle">Game Play</h3>
+      <span id="arenaModeBadge" style="font-size: 0.75rem; background: #30363d; padding: 4px 8px; border-radius: 12px;">Vs Computer</span>
+    </div>
+
+    <div class="game-board" id="gameBoard">
+      <!-- Dynamic game rendering inside here -->
+    </div>
+    <div id="arenaControls" style="display: flex; gap: 8px; justify-content: center;"></div>
+  </div>
+
+  <script>
+    // Local State & Rewards Management
+    let coins = parseInt(localStorage.getItem("gh_coins") || "1000");
+    let username = localStorage.getItem("gh_username") || "Player_" + Math.floor(1000 + Math.random() * 9000);
+    document.getElementById("userCoins").innerText = coins;
+    document.getElementById("userName").innerText = username;
+    document.getElementById("profileNameInput").value = username;
+
+    function saveProfile() {
+      const val = document.getElementById("profileNameInput").value.trim();
+      if (val) {
+        username = val;
+        localStorage.setItem("gh_username", username);
+        document.getElementById("userName").innerText = username;
+        alert("Profile name updated!");
+      }
+    }
+
+    function claimDailyReward() {
+      const lastClaim = localStorage.getItem("gh_last_claim");
+      const today = new Date().toDateString();
+      if (lastClaim === today) {
+        document.getElementById("claimMsg").innerText = "Already claimed today! Come back tomorrow.";
+        return;
+      }
+      coins += 250;
+      localStorage.setItem("gh_coins", coins);
+      localStorage.setItem("gh_last_claim", today);
+      document.getElementById("userCoins").innerText = coins;
+      document.getElementById("claimMsg").innerText = "Success! Added +250 Coins.";
+    }
+
+    function switchTab(tabId) {
+      document.querySelectorAll(".view-container").forEach(el => el.classList.remove("active"));
+      document.querySelectorAll(".tab-btn").forEach(el => el.classList.remove("active"));
+      if (tabId === 'lobby') document.getElementById("lobbyView").classList.add("active");
+      if (tabId === 'multiplayer') document.getElementById("multiplayerView").classList.add("active");
+      if (tabId === 'rewards') document.getElementById("rewardsView").classList.add("active");
+    }
+
+    // WebRTC PeerJS Multiplayer Room Handlers
+    let peer = null;
+    let peerConn = null;
+    let currentRoomCode = null;
+
+    function createRoom() {
+      currentRoomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+      peer = new Peer(currentRoomCode);
+
+      peer.on('open', (id) => {
+        document.getElementById("roomDetails").style.display = "block";
+        document.getElementById("generatedCode").innerText = id;
+        
+        // Generate QR Code
+        const qrContainer = document.getElementById("qrBox");
+        qrContainer.innerHTML = "";
+        new QRCode(qrContainer, { text: "GAME_ROOM:" + id, width: 140, height: 140 });
+      });
+
+      peer.on('connection', (conn) => {
+        peerConn = conn;
+        document.getElementById("peerStatus").innerText = "Player Connected! Starting Game...";
+        setupPeerListeners();
+        setTimeout(() => openGame('tictactoe', 'multiplayer'), 1000);
+      });
+    }
+
+    function joinRoomByCode() {
+      const code = document.getElementById("joinRoomInput").value.trim().toUpperCase();
+      if (!code) { alert("Please enter room code"); return; }
+      
+      peer = new Peer();
+      peer.on('open', () => {
+        peerConn = peer.connect(code);
+        setupPeerListeners();
+      });
+    }
+
+    function setupPeerListeners() {
+      peerConn.on('open', () => {
+        alert("Connected to host room!");
+        openGame('tictactoe', 'multiplayer');
+      });
+      peerConn.on('data', (data) => {
+        handleIncomingGameData(data);
+      });
+    }
+
+    // GAME ENGINES (Tic Tac Toe, Bingo, UNO, Rummy)
+    let currentGame = null;
+    let tttState = Array(9).fill(null);
+    let myTurn = true;
+
+    function openGame(gameType, mode = 'ai') {
+      currentGame = gameType;
+      document.querySelectorAll(".view-container").forEach(el => el.classList.remove("active"));
+      document.getElementById("arenaView").classList.add("active");
+      document.getElementById("arenaModeBadge").innerText = (mode === 'ai') ? "Vs Computer (Bot)" : "Multiplayer Room";
+      
+      const board = document.getElementById("gameBoard");
+      board.innerHTML = "";
+
+      if (gameType === 'tictactoe') initTicTacToe(mode);
+      if (gameType === 'bingo') initBingo();
+      if (gameType === 'uno') initUno(mode);
+      if (gameType === 'rummy') initRummy(mode);
+    }
+
+    function exitGame() {
+      switchTab('lobby');
+    }
+
+    // 1. TIC TAC TOE
+    function initTicTacToe(mode) {
+      document.getElementById("arenaTitle").innerText = "Tic Tac Toe";
+      tttState = Array(9).fill(null);
+      myTurn = true;
+      const board = document.getElementById("gameBoard");
+      const grid = document.createElement("div");
+      grid.className = "ttt-grid";
+
+      for (let i = 0; i < 9; i++) {
+        const cell = document.createElement("div");
+        cell.className = "ttt-cell";
+        cell.id = "ttt-" + i;
+        cell.onclick = () => onTttClick(i, mode);
+        grid.appendChild(cell);
+      }
+      board.appendChild(grid);
+    }
+
+    function onTttClick(index, mode) {
+      if (tttState[index] || !myTurn) return;
+      tttState[index] = "X";
+      document.getElementById("ttt-" + index).innerText = "X";
+      
+      if (mode === 'multiplayer' && peerConn) {
+        peerConn.send({ type: 'MOVE', index: index });
+        myTurn = false;
+      } else {
+        // Computer AI Move
+        myTurn = false;
+        setTimeout(makeComputerMoveTTT, 400);
+      }
+    }
+
+    function makeComputerMoveTTT() {
+      const empties = tttState.map((v, i) => v === null ? i : null).filter(v => v !== null);
+      if (empties.length > 0) {
+        const pick = empties[Math.floor(Math.random() * empties.length)];
+        tttState[pick] = "O";
+        document.getElementById("ttt-" + pick).innerText = "O";
+      }
+      myTurn = true;
+    }
+
+    // 2. BINGO (5x5 Number grid)
+    function initBingo() {
+      document.getElementById("arenaTitle").innerText = "Bingo (Classic 5x5)";
+      const board = document.getElementById("gameBoard");
+      const grid = document.createElement("div");
+      grid.className = "bingo-grid";
+
+      let numbers = Array.from({length: 25}, (_, i) => i + 1).sort(() => Math.random() - 0.5);
+      numbers.forEach(num => {
+        const cell = document.createElement("div");
+        cell.className = "bingo-cell";
+        cell.innerText = num;
+        cell.onclick = () => cell.classList.toggle("marked");
+        grid.appendChild(cell);
+      });
+      board.appendChild(grid);
+    }
+
+    // 3. COLOR UNO STYLE
+    function initUno(mode) {
+      document.getElementById("arenaTitle").innerText = "UNO Classic";
+      const board = document.getElementById("gameBoard");
+      board.innerHTML = `<div style="text-align:center;"><p>Top Discard Pile:</p><div class="play-card red" style="margin:10px auto;">7</div><p>Your Hand:</p></div>`;
+      
+      const deck = document.createElement("div");
+      deck.className = "card-deck";
+      const sampleCards = [
+        { color: 'blue', val: '3' },
+        { color: 'red', val: '5' },
+        { color: 'green', val: 'Skip' },
+        { color: 'yellow', val: '+2' }
+      ];
+
+      sampleCards.forEach(c => {
+        const cardEl = document.createElement("div");
+        cardEl.className = `play-card ${c.color}`;
+        cardEl.innerText = c.val;
+        cardEl.onclick = () => {
+          cardEl.remove();
+          alert(`Played ${c.color.toUpperCase()} ${c.val}`);
+        };
+        deck.appendChild(cardEl);
+      });
+      board.appendChild(deck);
+    }
+
+    // 4. RUMMY
+    function initRummy(mode) {
+      document.getElementById("arenaTitle").innerText = "Rummy Cards";
+      const board = document.getElementById("gameBoard");
+      board.innerHTML = `<p style="font-size:0.85rem; color:var(--text-dim); margin-bottom:8px;">Meld sets & sequences:</p>`;
+      
+      const deck = document.createElement("div");
+      deck.className = "card-deck";
+      const rummyCards = ['♠A', '♠2', '♠3', '♥K', '♥Q', '♥J', '♦10'];
+
+      rummyCards.forEach(cardText => {
+        const cardEl = document.createElement("div");
+        cardEl.className = "play-card";
+        cardEl.innerText = cardText;
+        cardEl.onclick = () => cardEl.classList.toggle("marked");
+        deck.appendChild(cardEl);
+      });
+      board.appendChild(deck);
+    }
+
+    function handleIncomingGameData(data) {
+      if (data.type === 'MOVE') {
+        tttState[data.index] = "O";
+        const el = document.getElementById("ttt-" + data.index);
+        if (el) el.innerText = "O";
+        myTurn = true;
+      }
+    }
+  </script>
+</body>
+</html>
